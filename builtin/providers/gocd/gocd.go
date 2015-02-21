@@ -15,11 +15,12 @@ type receiver struct {
 	target *gobot.ReceiverGroup
 }
 
-func New() gobot.Receiver {
+func New() gobot.Handler {
 	codebase := os.Getenv("GO_CODEBASE")
 	username := os.Getenv("GO_USERNAME")
 	password := os.Getenv("GO_PASSWORD")
 
+	// load base configuration
 	if codebase == "" {
 		log.Fatalln(fmt.Errorf("ERROR - GO_CODEBASE environment variable not defined"))
 	}
@@ -28,6 +29,9 @@ func New() gobot.Receiver {
 	if username != "" && password != "" {
 		g = goapi.WithAuth(g, username, password)
 	}
+
+	handlers := gobot.Handlers{}
+	handlers.AddFunc(handleAllBuilds)
 
 	r := &receiver{
 		api:    g,
@@ -40,6 +44,9 @@ func New() gobot.Receiver {
 
 func (r *receiver) OnMessage(text string) (string, *gobot.Attachment, bool) {
 	return r.target.OnMessage(text)
+}
+
+func handleAllBuilds(c *gobot.Context) {
 }
 
 func (r *receiver) allBuilds(text string) (string, *gobot.Attachment, bool) {
