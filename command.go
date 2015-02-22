@@ -1,68 +1,89 @@
 package gobot
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
 
-type Handler interface {
-	OnMessage(string) (*Response, bool)
-}
-
-type HandlerFunc func(string) (*Response, bool)
-
-func (h HandlerFunc) OnMessage(text string) (*Response, bool) {
-	return h(text)
-}
-
-// -------------------------------------------------------
-
-type Handlers []Handler
-
-func (h Handlers) Add(handlers ...Handler) Handler {
-	h = append(h, handlers...)
-	return h
-}
-
-func (h Handlers) AddFunc(handlerFuncs ...HandlerFunc) Handler {
-	for _, hfn := range handlerFuncs {
-		var handler Handler = hfn
-		h.Add(handler)
-	}
-	return h
-}
-
-func (h Handlers) OnMessage(text string) (*Response, bool) {
-	if h != nil {
-		for _, handler := range h {
-			if resp, ok := handler.OnMessage(text); ok {
-				return resp, ok
-			}
-		}
-	}
-
-	return nil, false
-}
+	log "github.com/Sirupsen/logrus"
+)
 
 // -------------------------------------------------------
 
 type Command struct {
-	Grammar string         `json:"grammar"`
-	Run     string         `json:"run"`
-	Action  func(*Context) `json:"-"`
-	matcher *regexp.Regexp
+	Provider string         `json:"provider,omitempty"`
+	Grammar  string         `json:"grammar,omitempty"`
+	Grammars []string       `json:"grammars,omitempty"`
+	Summary  string         `json:"summary"`
+	Run      string         `json:"run"`
+	Action   func(*Context) `json:"-"`
+	matcher  matchers
 }
 
-func (c *Command) init() error {
-	matcher, err := regexp.Compile(c.Grammar)
-	if err != nil {
-		return err
+func (c *Command) allGrammars() []string {
+	// created a unified list of grammars
+	grammars := c.Grammars
+	if grammars == nil {
+		grammars = []string{}
 	}
-	c.matcher = matcher
+	if c.Grammar != "" {
+		grammars = append(grammars, c.Grammar)
+	}
+
+	return grammars
+}
+
+func (c *Command) Examples() Examples {
+	examples := Examples{}
+
+	for _, grammar := range c.allGrammars() {
+		examples = append(examples, Example{
+			Provider: c.Provider,
+			Grammar:  grammar,
+			Summary:  c.Summary,
+		})
+	}
+
+	return examples
+}
+
+func (c *Command) OnLoad() error {
+	// convert those into a matchers
+	m := matchers{}
+	for _, grammar := range c.allGrammars() {
+		grammar = strings.TrimSpace(grammar)
+		if grammar == "" {
+			continue
+		}
+
+		grammarToCompile := grammar
+		if !strings.HasPrefix(grammarToCompile, "^") {
+			grammarToCompile = "^" + grammarToCompile
+		}
+		if !strings.HasSuffix(grammarToCompile, "$") {
+			grammarToCompile = grammarToCompile + "$"
+		}
+
+		matcher, err := regexp.Compile(grammarToCompile)
+		if err != nil {
+			return err
+		}
+		m = append(m, matcherNode{
+			grammar: grammar,
+			matcher: matcher,
+		})
+
+		log.WithField("stage", "OnLoad").Debugf("loading grammar => %s", grammar)
+	}
+
+	c.matcher = m
 	return nil
 }
 
 func (c *Command) OnMessage(text string) (*Response, bool) {
-	if matches := c.matcher.FindStringSubmatch(text); matches != nil {
+	if grammar, matches, ok := c.matcher.match(text); ok {
+		log.WithField("stage", "grammar").Debugf("'%s' matched '%s' [%d]", text, grammar, len(matches))
 		ctx := &Context{
-			Matches: matches,
+			matches: matches,
 		}
 		c.Action(ctx)
 		return ctx.response, ctx.ok
@@ -73,10 +94,38 @@ func (c *Command) OnMessage(text string) (*Response, bool) {
 
 // -------------------------------------------------------
 
+type matcherNode struct {
+	grammar string
+	matcher *regexp.Regexp
+}
+
+type matchers []matcherNode
+
+func (m matchers) match(text string) (string, []string, bool) {
+	for _, node := range m {
+		if matches := node.matcher.FindStringSubmatch(text); matches != nil {
+			return node.grammar, matches, true
+		}
+	}
+
+	return "", nil, false
+}
+
+// -------------------------------------------------------
+
 type Context struct {
-	Matches  []string
+	matches  []string
 	response *Response
 	ok       bool
+}
+
+func (c *Context) Match(index int) string {
+	if index > len(c.matches) {
+		log.WithField("grammar", "match-err").Warnf("invalid #Match(%d) request => %v [%d]", index, c.matches[0], len(c.matches))
+		return ""
+	}
+
+	return c.matches[index]
 }
 
 func (c *Context) Respond(text string) *Response {
@@ -85,12 +134,17 @@ func (c *Context) Respond(text string) *Response {
 	return c.response
 }
 
-func (c *Context) Fail() {
-	c.ok = false
+func (c *Context) Fail(err error) {
+	c.Respond(err.Error())
 }
 
 // -------------------------------------------------------
 
 type Response struct {
 	Text string
+}
+
+func (r *Response) Append(text string) *Response {
+	r.Text = r.Text + "\n" + text
+	return r
 }

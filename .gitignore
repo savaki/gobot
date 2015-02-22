@@ -1,3 +1,9 @@
 # ignore config files
 /*.env
 
+# ignore generated files
+/gin-bin
+/gobot/gin-bin
+/gobot/gobot
+
+

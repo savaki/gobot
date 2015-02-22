@@ -19,8 +19,28 @@ func TestCommand(t *testing.T) {
 		}
 
 		Convey("Then I expect the matcher to match", func() {
-			So(command.init(), ShouldBeNil)
-			So(command.matcher.FindStringSubmatch("hello world"), ShouldResemble, []string{"hello world", "hello", "wor"})
+			So(command.OnLoad(), ShouldBeNil)
+
+			grammar, matches, ok := command.matcher.match("hello world")
+			So(grammar, ShouldEqual, command.Grammar)
+			So(matches, ShouldResemble, []string{"hello world", "hello", "wor"})
+			So(ok, ShouldBeTrue)
+		})
+	})
+
+	Convey("Given a command with pattern matching", t, func() {
+		command := &Command{
+			Grammar: `go b (\S+)`,
+			Action:  action,
+		}
+
+		Convey("Then I expect the matcher to match", func() {
+			So(command.OnLoad(), ShouldBeNil)
+
+			grammar, matches, ok := command.matcher.match("go b FirstPipeline")
+			So(grammar, ShouldEqual, command.Grammar)
+			So(matches, ShouldResemble, []string{"go b FirstPipeline", "FirstPipeline"})
+			So(ok, ShouldBeTrue)
 		})
 	})
 
@@ -31,7 +51,7 @@ func TestCommand(t *testing.T) {
 		}
 
 		Convey("When I call init", func() {
-			err := command.init()
+			err := command.OnLoad()
 
 			Convey("Then I expect no errors", func() {
 				So(err, ShouldBeNil)
@@ -40,13 +60,15 @@ func TestCommand(t *testing.T) {
 			Convey("And I expect things to be initialized", func() {
 				So(command.matcher, ShouldNotBeNil)
 
-				parts := command.matcher.FindStringSubmatch(command.Grammar)
-				So(parts, ShouldResemble, []string{command.Grammar})
+				grammar, matches, ok := command.matcher.match(command.Grammar)
+				So(grammar, ShouldEqual, command.Grammar)
+				So(matches, ShouldResemble, []string{command.Grammar})
+				So(ok, ShouldBeTrue)
 			})
 		})
 
 		Convey("When I call #handle", func() {
-			err := command.init()
+			err := command.OnLoad()
 			So(err, ShouldBeNil)
 
 			resp, ok := command.OnMessage(command.Grammar)

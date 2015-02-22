@@ -1,19 +1,24 @@
 package main
 
 import (
-	"fmt"
-	"log"
 	"os"
 	"sync"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/codegangsta/cli"
 	"github.com/savaki/gobot"
 	"github.com/savaki/gobot/builtin/listeners/slackbot"
 	"github.com/savaki/gobot/builtin/providers/gocd"
 )
 
+const (
+	BuiltinProvider = "builtin"
+)
+
 var (
-	flagSlack = cli.BoolFlag{"slack", "enable slack listener", "GOBOT_SLACK"}
+	flagSlack   = cli.BoolFlag{"slack", "enable slack listener", "GOBOT_SLACK"}
+	flagName    = cli.StringFlag{"name", "gobot", "the name of the bot", "GOBOT_NAME"}
+	flagVerbose = cli.BoolFlag{"verbose", "verbose level logging", "GOBOT_VERBOSE"}
 )
 
 func main() {
@@ -22,6 +27,8 @@ func main() {
 	app.Usage = "ThoughtWork Go plugin for chatops"
 	app.Flags = []cli.Flag{
 		flagSlack,
+		flagName,
+		flagVerbose,
 	}
 	app.Action = Run
 	app.Run(os.Args)
@@ -33,29 +40,40 @@ func assert(err error) {
 	}
 }
 
-func Run(c *cli.Context) {
-	var echo gobot.ReceiverFunc = func(text string) (string, *gobot.Attachment, bool) {
-		return "echo => " + text, nil, true
+func goHandlers() gobot.Handlers {
+	handlers, err := gocd.Handlers()
+	if err != nil {
+		log.Infof("Unable to load Go handlers.  Go grammars will not be available. => %s", err.Error())
+		return gobot.Handlers{}
 	}
 
-	receivers := []gobot.Receiver{
-		gocd.New(),
+	return handlers
+}
+
+func Run(c *cli.Context) {
+	name := c.String(flagName.Name)
+	if c.Bool(flagVerbose.Name) {
+		log.SetLevel(log.DebugLevel)
+		log.Debugf("setting log level to debug")
 	}
+
+	handlers := gobot.Handlers{}
+	handlers = handlers.
+		WithHandlers(goHandlers())
+	handlers = handlers.WithHandlers(allGrammars(name, handlers))
+
+	err := handlers.OnLoad()
+	assert(err)
 
 	var wg sync.WaitGroup
 
 	// start the slack listener
 	if c.Bool(flagSlack.Name) {
-		fmt.Println("starting slack listener")
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
-			b, err := slackbot.New()
-			assert(err)
-
-			b = slackbot.WithReceiver(b, receivers...)
-			err = b.Listen()
+			err := slackbot.Listen(name, handlers)
 			assert(err)
 		}()
 	}

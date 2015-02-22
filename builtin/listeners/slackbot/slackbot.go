@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
+
+	log "github.com/Sirupsen/logrus"
 
 	"github.com/savaki/gobot"
 	"github.com/savaki/slack"
@@ -13,81 +16,67 @@ const (
 	DefaultName = "gobot"
 )
 
-var (
-	receivers = []gobot.Receiver{}
-)
+func Listen(name string, handler gobot.Handler) error {
+	log.WithField("provider", "slackbot").Debugf("starting slack listener with name, %s", name)
 
-func New() (*Listener, error) {
+	// 1. retrieve the api
 	token := os.Getenv("SLACK_TOKEN")
 	if token == "" {
-		return nil, fmt.Errorf("ERROR - missing env variable, SLACK_TOKEN")
+		return fmt.Errorf("ERROR - missing env variable, SLACK_TOKEN")
 	}
-
-	name := os.Getenv("SLACK_NAME")
-	if name == "" {
-		name = DefaultName
-	}
-
 	api := slack.New(token)
 
+	// 2. create a matcher for the name
 	pattern := fmt.Sprintf(`\s*%s\s+(.*)$`, name)
 	matcher, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return &Listener{
-		Matcher:   matcher,
-		Receivers: []gobot.Receiver{},
-		api:       api,
-		Name:      name,
-	}, nil
+	r := robot{
+		api:     api,
+		name:    name,
+		matcher: matcher,
+		handler: handler,
+	}
+
+	// 3. pass to the api to listen
+	return api.Listen(r)
 }
 
-func WithReceiver(l *Listener, r ...gobot.Receiver) *Listener {
-	l.Receivers = append(l.Receivers, r...)
-	return l
+type robot struct {
+	api     *slack.Client
+	name    string
+	matcher *regexp.Regexp
+	handler gobot.Handler
 }
 
-type Listener struct {
-	Matcher   *regexp.Regexp
-	Receivers []gobot.Receiver
-	api       *slack.Client
-	Name      string
-}
+func (r robot) OnMessage(event slack.MessageEvent) error {
+	log.WithField("provider", "slackbot").Debugf("[RAW] => %s", event.Text)
+	if matches := r.matcher.FindStringSubmatch(event.Text); len(matches) > 1 {
+		text := strings.TrimSpace(matches[1])
 
-func (l *Listener) Listen() error {
-	return l.api.Listen(l)
-}
-
-func (c *Listener) OnMessage(event slack.MessageEvent) error {
-	if matches := c.Matcher.FindStringSubmatch(event.Text); len(matches) > 1 {
-		text := matches[1]
-		if resp, attachment, match := c.processMessage(text); match {
-			c.respond(event, resp, attachment)
+		log.WithField("provider", "slackbot").Debugf("[IN]  => %s", text)
+		if response, ok := r.handler.OnMessage(text); ok {
+			r.respond(event, response)
 		}
 	}
 
 	return nil
 }
 
-func (c *Listener) respond(event slack.MessageEvent, text string, attachment *gobot.Attachment) error {
-	_, err := c.api.PostMessage(slack.PostMessageReq{
+func (r robot) respond(event slack.MessageEvent, response *gobot.Response) error {
+	if log.GetLevel() == log.DebugLevel {
+		text := response.Text
+		if i := strings.Index(text, "\n"); i > 0 {
+			text = text[0:i] + "..."
+		}
+		log.WithField("provider", "slackbot").Debugf("[OUT] => %s", text)
+	}
+	_, err := r.api.PostMessage(slack.PostMessageReq{
 		Channel:  event.Channel,
-		Text:     text,
-		Username: c.Name,
+		Text:     response.Text,
+		Username: r.name,
 	})
 	return err
-}
-
-func (c *Listener) processMessage(text string) (string, *gobot.Attachment, bool) {
-	if c.Receivers != nil {
-		for _, r := range c.Receivers {
-			if resp, attachment, match := r.OnMessage(text); match {
-				return resp, attachment, match
-			}
-		}
-	}
-
-	return "", nil, false
 }

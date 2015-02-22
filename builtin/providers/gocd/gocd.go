@@ -1,93 +1,177 @@
+// Description:
+//   Interact with your ThoughtWorks Go Continuous Delivery server
+//
+// Dependencies:
+//   None
+//
+// Configuration:
+//   GOBOT_GO_CODEBASE
+//   GOBOT_GO_USERNAME
+//   GOBOT_GO_PASSWORD
+//
+// Commands:
+//   gobot go b <pipeline> - builds the pipeline specified by pipeline. List pipelines to get the list of pipelines.
+//   gobot go build <pipeline> - builds the specified Go pipeline
+//   gobot go list - lists Go pipelines
+//   gobot go last <pipeline> - Details about the last build for the specified Go pipeline
+//   gobot go status - lists failing builds
+
+//
+// Author:
+//   Matt Ho
+
 package gocd
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/savaki/goapi"
 	"github.com/savaki/gobot"
 )
 
 type receiver struct {
-	api    *goapi.Client
-	target *gobot.ReceiverGroup
+	api *goapi.Client
 }
 
-func New() gobot.Handler {
-	codebase := os.Getenv("GO_CODEBASE")
-	username := os.Getenv("GO_USERNAME")
-	password := os.Getenv("GO_PASSWORD")
-
-	// load base configuration
+func apiFromEnv() (*goapi.Client, error) {
+	// attempt to instantiate a client
+	codebase := os.Getenv("GOBOT_GO_CODEBASE")
 	if codebase == "" {
-		log.Fatalln(fmt.Errorf("ERROR - GO_CODEBASE environment variable not defined"))
+		return nil, fmt.Errorf("GOBOT_GO_CODEBASE environment variable not defined")
+	}
+	client := goapi.New(codebase)
+
+	// associate a username and password if provided
+	username := os.Getenv("GOBOT_GO_USERNAME")
+	password := os.Getenv("GOBOT_GO_PASSWORD")
+	if username != "" && password != "" {
+		client = goapi.WithAuth(client, username, password)
 	}
 
-	g := goapi.New(codebase)
-	if username != "" && password != "" {
-		g = goapi.WithAuth(g, username, password)
+	return client, nil
+}
+
+func Handlers() (gobot.Handlers, error) {
+	// use environment variables to instantiate the goapi
+	api, err := goapi.FromEnv()
+	if err != nil {
+		return nil, err
+	}
+
+	// associate all our commands with the handler
+	r := &receiver{api: api}
+	commands := []*gobot.Command{
+		{
+			Provider: "go",
+			Grammars: []string{`go b (\S+)`, `go build (\S+)`},
+			Summary:  "schedule a pipeline to run",
+			Action:   r.scheduledPipeline,
+		},
+		{
+			Provider: "go",
+			Grammar:  "go list",
+			Summary:  "list all pipelines",
+			Action:   r.listPipelines,
+		},
+		{
+			Provider: "go",
+			Grammar:  `go last (\S+)`,
+			Summary:  "last build status for specified pipeline",
+			Action:   r.lastStatus,
+		},
+		{
+			Provider: "go",
+			Grammar:  "go status",
+			Summary:  "lists failed builds",
+			Action:   r.failedBuilds,
+		},
 	}
 
 	handlers := gobot.Handlers{}
-	handlers.AddFunc(handleAllBuilds)
+	return handlers.WithCommands(commands), nil
+}
 
-	r := &receiver{
-		api:    g,
-		target: &gobot.ReceiverGroup{},
+func (r *receiver) listPipelines(c *gobot.Context) {
+	log.WithField("provider", "gocd").Debugf("#listPipelines")
+
+	groups, err := r.api.PipelineGroups()
+	if err != nil {
+		c.Fail(err)
+		return
 	}
-	r.target.AddFunc(r.allBuilds, r.failingBuilds)
+	response := c.Respond("Piplines:")
 
-	return r
-}
-
-func (r *receiver) OnMessage(text string) (string, *gobot.Attachment, bool) {
-	return r.target.OnMessage(text)
-}
-
-func handleAllBuilds(c *gobot.Context) {
-}
-
-func (r *receiver) allBuilds(text string) (string, *gobot.Attachment, bool) {
-	if text != "all builds" {
-		return "", nil, false
+	for _, g := range groups {
+		for i, p := range g.Pipelines {
+			response.Append(fmt.Sprintf(" %d. %s", i+1, p.Name))
+		}
 	}
+}
+
+func (r *receiver) scheduledPipeline(c *gobot.Context) {
+	log.WithField("provider", "gocd").Debugf("#allBuilds")
+
+	pipeline := c.Match(1)
+	if err := r.api.PipelineSchedule(pipeline); err != nil {
+		c.Fail(err)
+		return
+	}
+
+	c.Respond(fmt.Sprintf("Scheduled pipeline, %s", pipeline))
+}
+
+func (r *receiver) lastStatus(c *gobot.Context) {
+	log.WithField("provider", "gocd").Debugf("#lastStatus")
 
 	projects, err := r.api.BuildStatus()
 	if err != nil {
-		gobot.WrapError(err)
+		c.Fail(err)
 	}
 
-	lines := []string{}
-	for i, p := range projects {
+	pipeline := c.Match(1)
+	filtered := []goapi.Project{}
+	for _, p := range projects {
+		if parts := strings.Split(p.Name, " :: "); len(parts) != 2 {
+			continue
+		} else if parts[0] != pipeline {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+
+	if len(filtered) == 0 {
+		c.Respond(fmt.Sprintf("Unable to find a pipeline with name, %s", pipeline))
+		return
+	}
+
+	response := c.Respond(fmt.Sprintf("%s:", pipeline))
+	for i, p := range filtered {
 		text := fmt.Sprintf("%d. %s => %s", i+1, p.Name, p.LastBuildStatus)
-		lines = append(lines, text)
+		response.Append(text)
 	}
-
-	return strings.Join(lines, "\n"), nil, true
 }
 
-func (r *receiver) failingBuilds(text string) (string, *gobot.Attachment, bool) {
-	if text != "failing builds" {
-		return "", nil, false
-	}
+func (r *receiver) failedBuilds(c *gobot.Context) {
+	log.WithField("provider", "gocd").Debugf("#failedBuilds")
 
 	projects, err := r.api.BuildStatus()
 	if err != nil {
-		gobot.WrapError(err)
+		c.Fail(err)
 	}
 
-	failed := goapi.Filter.Failed.Filter(projects)
+	failed := goapi.OnlyFailedBuilds(projects)
+
 	if len(failed) == 0 {
-		return "all builds green - yippee!", nil, true
+		c.Respond("All builds running green!")
+		return
 	}
 
-	lines := []string{}
+	response := c.Respond("Failed builds:")
 	for i, p := range failed {
 		text := fmt.Sprintf("%d. %s => %s", i+1, p.Name, p.LastBuildStatus)
-		lines = append(lines, text)
+		response.Append(text)
 	}
-
-	return strings.Join(lines, "\n"), nil, true
 }
