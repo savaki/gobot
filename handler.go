@@ -8,7 +8,7 @@ type Handler interface {
 	OnLoad() error
 
 	// Called when each message arrives
-	OnMessage(string) (*Response, bool)
+	OnMessage(*Context) (*Response, bool)
 }
 
 // -------------------------------------------------------
@@ -56,9 +56,9 @@ func (h Handlers) OnLoad() error {
 	return nil
 }
 
-func (h Handlers) OnMessage(text string) (*Response, bool) {
+func (h Handlers) OnMessage(c *Context) (*Response, bool) {
 	for _, handler := range h {
-		if resp, ok := handler.OnMessage(text); ok {
+		if resp, ok := handler.OnMessage(c); ok {
 			return resp, ok
 		}
 	}

@@ -71,7 +71,8 @@ func TestCommand(t *testing.T) {
 			err := command.OnLoad()
 			So(err, ShouldBeNil)
 
-			resp, ok := command.OnMessage(command.Grammar)
+			ctx := &Context{Text: command.Grammar}
+			resp, ok := command.OnMessage(ctx)
 
 			Convey("Then I expect our command to be executed", func() {
 				So(ok, ShouldBeTrue)

@@ -9,6 +9,7 @@ import (
 	"github.com/savaki/gobot"
 	"github.com/savaki/gobot/builtin/listeners/slackbot"
 	"github.com/savaki/gobot/builtin/providers/gocd"
+	"github.com/savaki/gobot/builtin/providers/mfa"
 )
 
 const (
@@ -49,7 +50,8 @@ func Run(c *cli.Context) {
 
 	handlers := gobot.Handlers{}
 	handlers = handlers.
-		WithProvider(gocd.Provider())
+		WithProvider(gocd.Provider()).
+		WithProvider(mfa.Provider())
 	handlers = handlers.WithHandlers(allGrammars(name, handlers))
 
 	err := handlers.OnLoad()

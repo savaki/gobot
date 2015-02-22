@@ -79,12 +79,10 @@ func (c *Command) OnLoad() error {
 	return nil
 }
 
-func (c *Command) OnMessage(text string) (*Response, bool) {
-	if grammar, matches, ok := c.matcher.match(text); ok {
-		log.WithField("stage", "grammar").Debugf("'%s' matched '%s' [%d]", text, grammar, len(matches))
-		ctx := &Context{
-			matches: matches,
-		}
+func (c *Command) OnMessage(ctx *Context) (*Response, bool) {
+	if grammar, matches, ok := c.matcher.match(ctx.Text); ok {
+		log.WithField("stage", "grammar").Debugf("'%s' matched '%s' [%d]", ctx.Text, grammar, len(matches))
+		ctx.matches = matches
 		c.Action(ctx)
 		return ctx.response, ctx.ok
 	}
@@ -114,6 +112,8 @@ func (m matchers) match(text string) (string, []string, bool) {
 // -------------------------------------------------------
 
 type Context struct {
+	User     string
+	Text     string
 	matches  []string
 	response *Response
 	ok       bool

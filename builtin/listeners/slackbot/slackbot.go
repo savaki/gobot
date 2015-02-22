@@ -57,7 +57,11 @@ func (r robot) OnMessage(event slack.MessageEvent) error {
 		text := strings.TrimSpace(matches[1])
 
 		log.WithField("provider", "slackbot").Debugf("[IN]  => %s", text)
-		if response, ok := r.handler.OnMessage(text); ok {
+		ctx := &gobot.Context{
+			User: event.User,
+			Text: text,
+		}
+		if response, ok := r.handler.OnMessage(ctx); ok {
 			r.respond(event, response)
 		}
 	}
