@@ -40,16 +40,6 @@ func assert(err error) {
 	}
 }
 
-func goHandlers() gobot.Handlers {
-	handlers, err := gocd.Handlers()
-	if err != nil {
-		log.Infof("Unable to load Go handlers.  Go grammars will not be available. => %s", err.Error())
-		return gobot.Handlers{}
-	}
-
-	return handlers
-}
-
 func Run(c *cli.Context) {
 	name := c.String(flagName.Name)
 	if c.Bool(flagVerbose.Name) {
@@ -59,7 +49,7 @@ func Run(c *cli.Context) {
 
 	handlers := gobot.Handlers{}
 	handlers = handlers.
-		WithHandlers(goHandlers())
+		WithProvider(gocd.Provider())
 	handlers = handlers.WithHandlers(allGrammars(name, handlers))
 
 	err := handlers.OnLoad()

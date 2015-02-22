@@ -31,13 +31,17 @@ func (h Handlers) WithHandlers(handlers ...Handler) Handlers {
 	return append(h, handlers...)
 }
 
-func (h Handlers) WithCommands(commands []*Command) Handlers {
-	if commands != nil {
-		handlers := make([]Handler, len(commands))
-		for i, c := range commands {
-			handlers[i] = c
-		}
-		return h.WithHandlers(handlers...)
+func (h Handlers) WithCommands(commands ...*Command) Handlers {
+	handlers := make([]Handler, len(commands))
+	for i, c := range commands {
+		handlers[i] = c
+	}
+	return h.WithHandlers(handlers...)
+}
+
+func (h Handlers) WithProvider(provider *Provider) Handlers {
+	if provider != nil {
+		return h.WithHandlers(provider.asHandlers()...)
 	}
 	return h
 }

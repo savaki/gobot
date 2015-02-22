@@ -32,6 +32,44 @@ import (
 	"github.com/savaki/gobot"
 )
 
+func Provider() *gobot.Provider {
+	// use environment variables to instantiate the goapi
+	api, err := goapi.FromEnv()
+	if err != nil {
+		log.Infof("Unable to load Go provider.  Go grammars will not be available. => %s", err.Error())
+		return nil
+	}
+
+	// associate all our commands with the handler
+
+	r := &receiver{api: api}
+	return &gobot.Provider{
+		Name: "go",
+		Commands: []gobot.Command{
+			{
+				Grammars: []string{`go b (\S+)`, `go build (\S+)`},
+				Summary:  "schedule a pipeline to run",
+				Action:   r.scheduledPipeline,
+			},
+			{
+				Grammar: "go list",
+				Summary: "list all pipelines",
+				Action:  r.listPipelines,
+			},
+			{
+				Grammar: `go last (\S+)`,
+				Summary: "last build status for specified pipeline",
+				Action:  r.lastStatus,
+			},
+			{
+				Grammar: "go status",
+				Summary: "lists failed builds",
+				Action:  r.failedBuilds,
+			},
+		},
+	}
+}
+
 type receiver struct {
 	api *goapi.Client
 }
@@ -52,46 +90,6 @@ func apiFromEnv() (*goapi.Client, error) {
 	}
 
 	return client, nil
-}
-
-func Handlers() (gobot.Handlers, error) {
-	// use environment variables to instantiate the goapi
-	api, err := goapi.FromEnv()
-	if err != nil {
-		return nil, err
-	}
-
-	// associate all our commands with the handler
-	r := &receiver{api: api}
-	commands := []*gobot.Command{
-		{
-			Provider: "go",
-			Grammars: []string{`go b (\S+)`, `go build (\S+)`},
-			Summary:  "schedule a pipeline to run",
-			Action:   r.scheduledPipeline,
-		},
-		{
-			Provider: "go",
-			Grammar:  "go list",
-			Summary:  "list all pipelines",
-			Action:   r.listPipelines,
-		},
-		{
-			Provider: "go",
-			Grammar:  `go last (\S+)`,
-			Summary:  "last build status for specified pipeline",
-			Action:   r.lastStatus,
-		},
-		{
-			Provider: "go",
-			Grammar:  "go status",
-			Summary:  "lists failed builds",
-			Action:   r.failedBuilds,
-		},
-	}
-
-	handlers := gobot.Handlers{}
-	return handlers.WithCommands(commands), nil
 }
 
 func (r *receiver) listPipelines(c *gobot.Context) {

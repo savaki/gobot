@@ -148,3 +148,24 @@ func (r *Response) Append(text string) *Response {
 	r.Text = r.Text + "\n" + text
 	return r
 }
+
+// -------------------------------------------------------
+
+type Provider struct {
+	Name     string
+	Commands []Command
+}
+
+func (p *Provider) asHandlers() Handlers {
+	handlers := Handlers{}
+
+	if p.Commands != nil {
+		for _, c := range p.Commands {
+			command := c
+			command.Provider = p.Name
+			handlers = handlers.WithCommands(&command)
+		}
+	}
+
+	return handlers
+}
