@@ -3,8 +3,9 @@ package gobot
 import "io"
 
 type Attachment struct {
-	Name        string
-	Reader      io.ReadCloser
+	Title       string
+	Filename    string
+	Content     io.Reader
 	ContentType string
 }
 

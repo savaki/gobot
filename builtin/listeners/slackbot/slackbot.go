@@ -1,6 +1,7 @@
 package slackbot
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -77,9 +78,44 @@ func (r robot) respond(event slack.MessageEvent, response *gobot.Response) error
 		}
 		log.WithField("provider", "slackbot").Debugf("[OUT] => %s", text)
 	}
+
+	// send text messages
+	if response.Text != "" {
+		err := r.respondText(event.Channel, response.Text)
+		if err != nil {
+			return err
+		}
+	}
+
+	// upload attachments
+	if response.Attachments != nil {
+		for _, a := range response.Attachments {
+			req := &slack.FilesUploadReq{
+				Content:  a.Content,
+				Filetype: a.ContentType,
+				Filename: a.Filename,
+				Title:    a.Title,
+				Channels: []string{event.Channel},
+			}
+			resp, err := r.api.FilesUpload(req)
+			if err != nil {
+				return err
+			}
+
+			if !resp.Ok {
+				r.respondText(event.Channel, resp.Error)
+				return errors.New(resp.Error)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (r robot) respondText(channel, text string) error {
 	_, err := r.api.PostMessage(slack.PostMessageReq{
-		Channel:  event.Channel,
-		Text:     response.Text,
+		Channel:  channel,
+		Text:     text,
 		Username: r.name,
 	})
 	return err

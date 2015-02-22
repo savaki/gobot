@@ -111,46 +111,6 @@ func (m matchers) match(text string) (string, []string, bool) {
 
 // -------------------------------------------------------
 
-type Context struct {
-	User     string
-	Text     string
-	matches  []string
-	response *Response
-	ok       bool
-}
-
-func (c *Context) Match(index int) string {
-	if index > len(c.matches) {
-		log.WithField("grammar", "match-err").Warnf("invalid #Match(%d) request => %v [%d]", index, c.matches[0], len(c.matches))
-		return ""
-	}
-
-	return c.matches[index]
-}
-
-func (c *Context) Respond(text string) *Response {
-	c.ok = true
-	c.response = &Response{Text: text}
-	return c.response
-}
-
-func (c *Context) Fail(err error) {
-	c.Respond(err.Error())
-}
-
-// -------------------------------------------------------
-
-type Response struct {
-	Text string
-}
-
-func (r *Response) Append(text string) *Response {
-	r.Text = r.Text + "\n" + text
-	return r
-}
-
-// -------------------------------------------------------
-
 type Provider struct {
 	Name     string
 	Commands []Command
