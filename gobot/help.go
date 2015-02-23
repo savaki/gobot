@@ -7,12 +7,12 @@ import (
 	"github.com/savaki/gobot"
 )
 
-func allGrammars(name string, handler gobot.Handler) gobot.Handler {
-	g := "grammars"
+func help(name string, handler gobot.Handler) gobot.Handler {
+	g := "help"
 	return &gobot.Command{
 		Grammar: g,
 		Action: func(c *gobot.Context) {
-			response := c.Respond("Supported grammars:")
+			response := c.Respond("Help:")
 
 			// 1. retrieve all the examples
 			all := handler.Examples()

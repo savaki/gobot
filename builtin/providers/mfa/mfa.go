@@ -2,12 +2,15 @@ package mfa
 
 import (
 	"bytes"
+	"encoding/base32"
 	"fmt"
 	"sync"
 
-	log "github.com/Sirupsen/logrus"
-	"github.com/gokyle/hotp"
+	"crypto/rand"
 
+	"code.google.com/p/rsc/qr"
+	log "github.com/Sirupsen/logrus"
+	"github.com/hgfischer/go-otp"
 	"github.com/savaki/gobot"
 )
 
@@ -33,24 +36,28 @@ func registerMFA(c *gobot.Context) {
 	log.Debugf("registering mfa")
 	c.Respond(fmt.Sprintf("registering a %s mfa", c.Match(1)))
 
-	otp, err := hotp.GenerateHOTP(6, true)
+	data := make([]byte, 10)
+	if n, err := rand.Read(data); err != nil {
+		c.Fail(err)
+		return
+	} else if n != len(data) {
+		c.Fail(fmt.Errorf("read %d random bytes, wanted %d", n, len(data)))
+		return
+	}
+	secret := base32.StdEncoding.EncodeToString(data)
+
+	saveOtp(c.User, secret)
+
+	code, err := qr.Encode("otpauth://totp/Gobot?secret="+secret, qr.Q)
 	if err != nil {
 		c.Fail(err)
 		return
 	}
-
-	qrCode, err := otp.QR("Gobot")
-	if err != nil {
-		c.Fail(err)
-		return
-	}
-
-	saveOtp(c.User, otp)
 
 	c.Upload(gobot.Attachment{
 		Title:       "QR Code",
 		Filename:    "QR.png",
-		Content:     bytes.NewReader(qrCode),
+		Content:     bytes.NewReader(code.PNG()),
 		ContentType: "image/png",
 	})
 }
@@ -58,39 +65,39 @@ func registerMFA(c *gobot.Context) {
 func verify(c *gobot.Context) {
 	log.Debugf("verifying mfa code")
 
-	otp, err := loadOtp(c.User)
+	secret, err := loadOtp(c.User)
 	if err != nil {
 		c.Fail(err)
 		return
 	}
 
-	code := c.Match(1)
-	if otp.Check(code) {
+	totp := &otp.TOTP{Secret: secret}
+	if code := c.Match(1); totp.Now().Verify(code) {
 		c.Respond("MFA code valid")
 	} else {
-		c.Respond("invalid MFA code")
+		c.Respond(fmt.Sprintf("invalid MFA code, expected %s", totp.Get()))
 	}
 }
 
-var keys map[string]*hotp.HOTP = map[string]*hotp.HOTP{}
+var keys map[string]string = map[string]string{}
 
 var mutex sync.Mutex
 
-func saveOtp(user string, otp *hotp.HOTP) {
+func saveOtp(user string, secret string) {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	keys[user] = otp
+	keys[user] = secret
 }
 
-func loadOtp(user string) (*hotp.HOTP, error) {
+func loadOtp(user string) (string, error) {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	otp, found := keys[user]
+	secret, found := keys[user]
 	if !found {
-		return nil, fmt.Errorf("no otp associated with user, %s", user)
+		return "", fmt.Errorf("no secret associated with user, %s", user)
 	}
 
-	return otp, nil
+	return secret, nil
 }

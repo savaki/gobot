@@ -18,6 +18,7 @@ const (
 
 var (
 	flagSlack   = cli.BoolFlag{"slack", "enable slack listener", "GOBOT_SLACK"}
+	flagMfa     = cli.BoolFlag{"mfa", "enable mfa provider [EXPERIMENTAL]", ""}
 	flagName    = cli.StringFlag{"name", "gobot", "the name of the bot", "GOBOT_NAME"}
 	flagVerbose = cli.BoolFlag{"verbose", "verbose level logging", "GOBOT_VERBOSE"}
 )
@@ -28,6 +29,7 @@ func main() {
 	app.Usage = "ThoughtWork Go plugin for chatops"
 	app.Flags = []cli.Flag{
 		flagSlack,
+		flagMfa,
 		flagName,
 		flagVerbose,
 	}
@@ -49,10 +51,11 @@ func Run(c *cli.Context) {
 	}
 
 	handlers := gobot.Handlers{}
-	handlers = handlers.
-		WithProvider(gocd.Provider()).
-		WithProvider(mfa.Provider())
-	handlers = handlers.WithHandlers(allGrammars(name, handlers))
+	handlers = handlers.WithProvider(gocd.Provider())
+	if c.Bool(flagMfa.Name) {
+		handlers = handlers.WithProvider(mfa.Provider())
+	}
+	handlers = handlers.WithHandlers(help(name, handlers))
 
 	err := handlers.OnLoad()
 	assert(err)
